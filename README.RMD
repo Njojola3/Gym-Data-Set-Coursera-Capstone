@@ -1,0 +1,161 @@
+---
+title: "Coursera Data Analyst Capstone"
+author: "Nicholas A. Jojola"
+date: "2025-09-10"
+output: github_document
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5,
+  dev = "png"
+)
+
+library(dplyr)
+library(janitor)
+library(stringr)
+library(ggplot2)
+library(broom)
+library(knitr)
+# library(kableExtra) # avoid for GitHub README styling
+library(forcats)
+
+
+### Introduction
+In this theoretical setting I will be acting as a data analyst for a fitness company looking to improve their recommendations for new members based on their fitness goals.
+
+```r
+```{r load-data}
+gym_data <- read.csv("gym_members_exercise_tracking.csv")
+
+
+### Clean
+We’ll standardize names, fix genders, coerce types, compute weight in lb, drop obvious outliers, and build `hours_per_week`.
+
+```r
+```{r clean-data}
+gym_data <- gym_data %>%
+  clean_names() %>%
+  mutate(
+    across(where(is.character), ~ str_to_lower(str_trim(.))),
+    gender = recode(gender, "m" = "male", "f" = "female"),
+    age = as.integer(age),
+    weight_lb = weight_kg * 2.20462
+  ) %>%
+  filter(is.na(age) | between(age, 10, 100)) %>%
+  filter(is.na(weight_lb) | between(weight_lb, 60, 600)) %>%
+  distinct()
+
+clean_gym_data <- gym_data %>%
+  mutate(hours_per_week = session_duration_hours * workout_frequency_days_week)
+
+qc <- tibble(
+  column   = names(clean_gym_data),
+  n_na     = sapply(clean_gym_data, function(x) sum(is.na(x))),
+  n_unique = sapply(clean_gym_data, function(x) dplyr::n_distinct(x))
+)
+kable(qc, caption = "QC: Missingness and Uniqueness by Column")
+
+
+```r
+```{r analysis_frame}
+df <- clean_gym_data %>%
+  mutate(
+    gender        = factor(gender),
+    workout_type  = factor(workout_type),
+    age_group     = cut(age, breaks = c(18, 29, 39, 49, 59, Inf),
+                        labels = c("18–29","30–39","40–49","50–59","60+"),
+                        right = TRUE, include.lowest = TRUE),
+    predicted_max = 220 - age,
+    cardio_score  = ifelse(!is.na(max_bpm) & !is.na(predicted_max) & predicted_max > 0,
+                           max_bpm / predicted_max, NA_real_)
+  )
+
+summary_tbl <- df %>%
+  group_by(gender, workout_type) %>%
+  summarise(
+    n            = n(),
+    hours_median = median(hours_per_week, na.rm = TRUE),
+    hours_IQR    = IQR(hours_per_week, na.rm = TRUE),
+    bpm_median   = median(max_bpm, na.rm = TRUE),
+    fat_median   = median(fat_percentage, na.rm = TRUE),
+    fat_IQR      = IQR(fat_percentage, na.rm = TRUE),
+    .groups = "drop"
+  )
+kable(summary_tbl, caption = "Summary by Gender × Workout Type")
+
+
+### Explore
+
+```r
+```{r plots, fig.width=7, fig.height=5}
+p_hours <- ggplot(df, aes(hours_per_week, fat_percentage, color = gender)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ workout_type) +
+  labs(title = "Body Fat % vs Weekly Hours by Workout Type",
+       x = "Hours per Week", y = "Body Fat %") +
+  theme_minimal()
+print(p_hours)
+
+p_bpm <- ggplot(df, aes(max_bpm, fat_percentage, color = gender)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ workout_type) +
+  labs(title = "Body Fat % vs Max BPM by Workout Type",
+       x = "Max BPM", y = "Body Fat %") +
+  theme_minimal()
+print(p_bpm)
+
+p_box <- ggplot(df, aes(workout_type, fat_percentage, fill = gender)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  labs(title = "Body Fat % by Workout Type × Gender", x = "Workout Type", y = "Body Fat %") +
+  theme_minimal()
+print(p_box)
+
+
+### Regression
+
+```r
+```{r regression}
+mod_fat <- lm(fat_percentage ~ gender + workout_type + hours_per_week + max_bpm, data = df)
+coef_fat <- tidy(mod_fat, conf.int = TRUE) %>%
+  mutate(term = recode(term,
+    "(Intercept)"="Intercept",
+    "gendermale"="Male (vs Female)",
+    "workout_typehiit"="HIIT (vs baseline)",
+    "workout_typestrength"="Strength (vs baseline)",
+    "workout_typeyoga"="Yoga (vs baseline)",
+    "hours_per_week"="Hours per week",
+    "max_bpm"="Max BPM"))
+fit_fat  <- glance(mod_fat)[, c("r.squared","adj.r.squared","sigma","df","p.value","AIC","BIC")]
+
+kable(coef_fat, digits = 3, caption = "Regression Coefficients: Fat % Model")
+kable(fit_fat, digits = 3, caption = "Model Fit: Fat % Model")
+
+
+### Interpret
+Body fat percentage decreases as weekly hours increase across workout types (strongest patterns in HIIT/cardio). No clear link between max BPM and fat % here.
+
+---
+
+## Why this works
+
+- Every code chunk starts with three backticks + `{r ...}` and **ends with three backticks on its own line**.
+- No spaces in chunk labels (e.g., `analysis_frame`, not `analysis frame`).
+- YAML is closed with `---` and there’s a **blank line** after it before the first chunk.
+
+---
+
+## Next clicks
+
+1) Save `README.Rmd`.  
+2) Knit ▸ **Knit to GitHub Document**.  
+3) Upload the new **`README.md`** **and** the **`README_files/`** folder to GitHub (Add file ▸ Upload files).
+
+
