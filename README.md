@@ -1,4 +1,4 @@
-Coursera Data Analyst Capstone
+Fitness Data Analysis 
 ================
 Nicholas A. Jojola
 2025-09-10
